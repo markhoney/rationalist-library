@@ -2,7 +2,7 @@
   "name": "rationalist-library",
   "version": "1.0.0",
   "description": "A dataset of the NZARH's library books, and scripts to parse the data",
-  "main": "clean.js",
+  "main": "process.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
