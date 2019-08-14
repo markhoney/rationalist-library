@@ -18,6 +18,7 @@
   "homepage": "https://github.com/markhoney/rationalist-library#readme",
   "dependencies": {
     "google-books-search": "^0.3.1",
+    "js-levenshtein": "^1.1.6",
     "papaparse": "^5.0.2",
     "sanitize-filename": "^1.6.2"
   }
