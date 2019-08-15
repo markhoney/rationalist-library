@@ -2,15 +2,18 @@ const Papa = require('papaparse');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-//const books = require('google-books-search');
+const googlebooks = require('google-books-search');
 const sanitize = require("sanitize-filename");
 const levenshtein = require('js-levenshtein');
+const util = require('util');
 
 Papa.parsePromise = function(file, options) {
 	return new Promise(function(complete, error) {
 		Papa.parse(file, {...options, complete, error});
 	});
 };
+
+googlebooks.searchPromise = util.promisify(googlebooks.search);
 
 async function getBooks() {
 	return (await Papa.parsePromise(fs.readFileSync('./Library Books - Books.tsv', "utf8"), {delimiter: "\t", header: true})).data;
@@ -22,7 +25,7 @@ function cleanBook(book) {
 		book[field] = book[field].replace(/\s\s+/g, ' ');
 		book[field] = book[field].replace(/ \: /, ": ");
 	});
-	["The", "A"].forEach(prefix => {
+	["The", "A", "An"].forEach(prefix => {
 		if (book.Title.endsWith(", " + prefix)) book.Title = prefix + " " + book.Title.slice(0, - (prefix.length + 2));
 		if (book.Title.endsWith(" " + prefix)) book.Title = prefix + " " + book.Title.slice(0, - (prefix.length + 1));
 		if (book.Title.includes(", " + prefix + ": ")) book.Title = prefix + " " + book.Title.replace(", " + prefix + ": ", ": ");
@@ -102,6 +105,26 @@ async function getOpenLibrary(book) {
 	return matches;
 }
 
+async function getGoogleBooks(book) {
+	const cachepath = path.join(__dirname, 'cache', 'GoogleBooks', sanitize(book.Title) + '.json');
+	let matches;
+	if (fs.existsSync(cachepath)) {
+		matches = require(cachepath);
+	} else {
+		if (download) {
+			try {
+				matches = await googlebooks.searchPromise(book.Title);
+			} catch(error) {
+				//console.log(error);
+			}
+			if (matches && matches.length) {
+				fs.writeFileSync(cachepath, JSON.stringify(matches, null, '\t'));
+			}
+		}
+	}
+	return matches;
+}
+
 function findBestMatch(book, matches) {
 	let bestmatch;
 	let lowest = 999;
@@ -126,22 +149,28 @@ function printResult(book, match) {
 	if (match.author_name && match.author_name.length) console.log(book.Author, levenshtein(book.Author.toLowerCase(), match.author_name[0].toLowerCase()), match.author_name[0]);
 }
 
-const download = false;
+const download = true;
 
 async function all() {
 	let books = await getBooks();
 	let total = 0;
 	for (let book of books) {
 		book = cleanBook(book);
-		const matches = await getOpenLibrary(book);
-		if (matches && matches.length) {
+		let matches = await getOpenLibrary(book);
+		if (!matches) {
+			matches = await getGoogleBooks(book);
+		}
+		/*if (matches && matches.length) {
 			const match = findBestMatch(book, matches);
 			if (match) {
 				total++;
-				//printResult(book, match);
+				if (Math.min(levenshtein(book.Title.split(":")[0].toLowerCase(), match.title.toLowerCase()), levenshtein(book.Title.toLowerCase(), match.title.toLowerCase())) + (match.author_name && match.author_name.length ? levenshtein(book.Author.toLowerCase(), match.author_name.join(", ").toLowerCase()) : 5) > 10) {
+					printResult(book, match);
+				}
 			}
-		}
+		}*/
 	}
 	console.log(total);
 }
+
 all();
