@@ -4,6 +4,7 @@
   "description": "A dataset of the NZARH's library books, and scripts to parse the data",
   "main": "process.js",
   "scripts": {
+    "process": "node process.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -17,11 +18,13 @@
   },
   "homepage": "https://github.com/markhoney/rationalist-library#readme",
   "dependencies": {
-    "axios": "^0.19.0",
-    "dotenv": "^8.0.0",
+    "axios": "^1.8.2",
+    "dotenv": "^16.4.7",
+    "google-books-js": "^1.0.2",
     "google-books-search": "^0.3.1",
     "js-levenshtein": "^1.1.6",
-    "papaparse": "^5.0.2",
-    "sanitize-filename": "^1.6.2"
+    "node-isbn": "^1.6.1",
+    "papaparse": "^5.5.2",
+    "sanitize-filename": "^1.6.3"
   }
 }
