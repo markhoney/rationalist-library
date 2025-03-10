@@ -96,7 +96,7 @@ async function getISBN(book) {
 	}
 	if (match) return [{
 		...match,
-		isbn: match.industryIdentifiers?.length ? match.industryIdentifiers.map(id => id.identifier).concat([book.ISBN]) : [book.ISBN],
+		isbn: match.industryIdentifiers?.length ? [...new Set(match.industryIdentifiers.map(id => id.identifier).concat([book.ISBN]))] : [book.ISBN],
 		source: 'ISBN',
 	}];
 	return [];
@@ -205,11 +205,31 @@ function matchPercent(title1, title2, authors1, authors2) {
 	if (title1.includes(":") && levenshtein(title1.toLowerCase(), title2.toLowerCase()) > levenshtein(title1.split(":", 2)[0].toLowerCase(), title2.toLowerCase())) {
 		title1 = title1.split(":", 2)[0];
 	}
-	const length = title1.length + authors1.length;
+	// const length = title1.length + authors1.length;
 	const titlelev = levenshtein(title1.toLowerCase(), title2.toLowerCase());
 	const authorlev = (authors2 && authors2.length ? levenshtein(authors1.toLowerCase(), authors2.join(", ").toLowerCase()) : authors1.length);
-	const percent = (1 - ((titlelev + authorlev) / length)) * 100;
-	return percent;
+	// const percent = (1 - ((titlelev + authorlev) / length)) * 100;
+	// Weight the percent based on the length of the title and author, and with 75% for the title and 25% for the author
+	const percent = (1 - ((titlelev / title1.length) * 0.75 + (authorlev / authors1.length) * 0.25)) * 100;
+	return Math.round(percent * 100) / 100;
+}
+
+function matchPercents(book, match) {
+	if (book.Title.includes(":") && levenshtein(book.Title.toLowerCase(), match.title.toLowerCase()) > levenshtein(book.Title.split(":", 2)[0].toLowerCase(), match.title.toLowerCase())) {
+		book.Title = book.Title.split(":", 2)[0];
+	}
+	const title = 1 - (levenshtein(book.Title.toLowerCase(), match.title.toLowerCase()) / Math.max(book.Title.length, match.title.length));
+	const author = 1 - (match.authors && match.authors.length ? levenshtein(book.Author.toLowerCase(), match.authors.join(", ").toLowerCase()) / Math.max(book.Author.length, match.authors.join(", ").length) : 0.5);
+	const date = 1 - Math.min(1, Math.abs(parseInt(book.Date) - parseInt(match.publishedDate.slice(0, 4))) / 100);
+	const percents = {
+		title: Math.round(title * 100) / 100,
+		author: Math.round(author * 100) / 100,
+		date,
+	};
+	console.log(book.Title, "=>", match.title, percents.title);
+	console.log(book.Author, "=>", match.authors?.join(', '), percents.author);
+	console.log(book.Date, "=>", match.publishedDate, percents.date);
+	return percents;
 }
 
 function findBestMatch(book, matches) {
@@ -219,15 +239,17 @@ function findBestMatch(book, matches) {
 		if (book.ISBN && match.isbn) {
 			if (match.isbn.includes(book.ISBN)) return {...match, percent: 101};
 		}
-		/*if (match.publisher && match.publish_year && match.publisher.includes(book.Publisher) && match.publish_year.includes(book.Date)) {
-			return match;
-		}*/
+		const percents = matchPercents(book, match);
 		const percent = matchPercent(book.Title, match.title, book.Author, match.authors);
-		// console.log(percent);
 		if (percent > highest) {
 			highest = percent;
 			bestmatch = match;
 		}
+		/* const percents = matchPercents(book.Title, match.title, book.Author, match.authors);
+		if (percents.title > highest && percents.author > 30) {
+			highest = percents.title;
+			bestmatch = match;
+		} */
 	}
 	return {...bestmatch, percent: highest};
 }
@@ -239,14 +261,14 @@ function printResult(book, match) {
 
 const download = true;
 const refresh = false;
-const lowestPercent = 80;
+const lowestPercent = 70;
 
 async function all() {
 	let books = await getBooks();
 	books = books.filter((book) => book.Title);
 	let total = 0;
 	let matched = 0;
-	const matchedBooks = [];
+	let matchedBooks = [];
 	for (let book of books) {
 		book = cleanBook(book);
 		// console.log(book);
@@ -262,8 +284,36 @@ async function all() {
 		].filter(match => match.title);
 		if (matches?.length) match = findBestMatch(book, matches);
 		total++;
-		if (match && (match.percent > lowestPercent)) {
-			matchedBooks.push(match);
+		if (match) { //  && (match.percent > lowestPercent)
+			matchedBooks.push({
+				title: book.Title,
+				title_matched: match.title,
+				authors: book.Author,
+				authors_matched: match.authors,
+				date: book.Date,
+				date_matched: match.publishedDate,
+				isbn: book.ISBN,
+				isbn_matched: match.isbn,
+				pages: book.Pages,
+				pages_matched: match.pageCount,
+				description: book.Description,
+				description_matched: match.description,
+				publisher: book.Publisher,
+				publisher_matched: match.publisher,
+				keywords: book.Keywords,
+				keywords_matched: match.categories,
+				binding: book.Binding,
+				barcode: book.Barcode,
+				value: book.Value,
+				status: book.Status,
+				image: match.imageLinks?.thumbnail,
+				percent: match.percent,
+				source: match.source,
+			});
+			// If any value is an array, flatten it to a comma separated string
+			for (const [key, value] of Object.entries(matchedBooks[matchedBooks.length - 1])) {
+				if (Array.isArray(value)) matchedBooks[matchedBooks.length - 1][key] = value.join(", ");
+			}
 			matched++;
 			console.log('Matched:', match.source + ':', book.Title, "|", book.Author, '=>', match.title , '|', match.authors, '   ', match.percent, '%   ', matched, '/', total);
 		} else if (match) {
@@ -272,7 +322,11 @@ async function all() {
 			console.log('No match:', book.Title, "|", book.Author, '   ', 0, '%   ', matched, '/', total);
 		}
 	}
+	// Sort by match percent
+	matchedBooks = matchedBooks.sort((a, b) => b.percent - a.percent);
 	fs.writeFileSync('Books.json', JSON.stringify(matchedBooks, null, '\t'));
+	fs.writeFileSync('Books.csv', Papa.unparse(matchedBooks));
+	process.exit(0);
 }
 
 all();
